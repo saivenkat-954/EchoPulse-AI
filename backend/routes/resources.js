@@ -1,0 +1,16 @@
+const crypto=require('crypto');
+const express = require('express');
+const { z } = require('zod');
+const db = require('../db');
+const { authenticateToken } = require('../middleware/auth');
+const router = express.Router();
+router.use(authenticateToken);
+const type=z.enum(['ELECTRICITY','WATER','FUEL','MATERIAL']);
+const id=z.string().uuid();
+const schema=z.object({name:z.string().trim().min(2).max(120),type,unit:z.string().trim().min(1).max(32)});
+router.get('/',async(req,res,next)=>{try{const r=await db.query('SELECT * FROM resources WHERE "organizationId"=$1 ORDER BY type,name',[req.user.organizationId]);res.json({success:true,data:r.rows})}catch(e){next(e)}});
+router.get('/:id',async(req,res,next)=>{try{id.parse(req.params.id);const r=await db.query('SELECT * FROM resources WHERE id=$1 AND "organizationId"=$2',[req.params.id,req.user.organizationId]);if(!r.rowCount)return res.status(404).json({success:false,error:{code:'NOT_FOUND',message:'Resource not found'}});res.json({success:true,data:r.rows[0]})}catch(e){next(e)}});
+router.post('/',async(req,res,next)=>{try{const b=schema.parse(req.body),now=new Date(),rid=crypto.randomUUID();const r=await db.query('INSERT INTO resources(id,"organizationId",name,type,unit,"createdAt","updatedAt") VALUES($1,$2,$3,$4,$5,$6,$6) RETURNING *',[rid,req.user.organizationId,b.name,b.type,b.unit,now]);res.status(201).json({success:true,data:r.rows[0]})}catch(e){next(e)}});
+router.put('/:id',async(req,res,next)=>{try{id.parse(req.params.id);const b=schema.parse(req.body);const r=await db.query('UPDATE resources SET name=$1,type=$2,unit=$3,"updatedAt"=$4 WHERE id=$5 AND "organizationId"=$6 RETURNING *',[b.name,b.type,b.unit,new Date(),req.params.id,req.user.organizationId]);if(!r.rowCount)return res.status(404).json({success:false,error:{code:'NOT_FOUND',message:'Resource not found'}});res.json({success:true,data:r.rows[0]})}catch(e){next(e)}});
+router.delete('/:id',async(req,res,next)=>{try{id.parse(req.params.id);const r=await db.query('DELETE FROM resources WHERE id=$1 AND "organizationId"=$2 RETURNING id',[req.params.id,req.user.organizationId]);if(!r.rowCount)return res.status(404).json({success:false,error:{code:'NOT_FOUND',message:'Resource not found'}});res.json({success:true,data:{id:req.params.id}})}catch(e){next(e)}});
+module.exports=router;
